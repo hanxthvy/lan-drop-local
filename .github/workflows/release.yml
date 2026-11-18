@@ -8,6 +8,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Token default hanya baca; melampirkan aset ke rilis butuh tulis.
+permissions:
+  contents: write
+
 jobs:
   desktop:
     strategy:
