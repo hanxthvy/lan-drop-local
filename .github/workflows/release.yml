@@ -27,6 +27,9 @@ jobs:
           - os: macos-15-intel
             name: macos-universal
             rust-target: universal-apple-darwin
+            # universal-apple-darwin bukan target rustup; dua arsitektur asli
+            # dipasang dulu, lalu bundler yang menggabungkannya jadi satu .dmg.
+            rust-targets: x86_64-apple-darwin,aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -35,7 +38,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          targets: ${{ matrix.rust-target }}
+          targets: ${{ matrix.rust-targets || matrix.rust-target }}
 
       - uses: swatinem/rust-cache@v2
         with:
