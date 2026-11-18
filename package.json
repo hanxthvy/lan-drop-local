@@ -57,7 +57,7 @@
     "bundle": "cd rust/app && npx tauri build",
     "bundle:linux": "cd rust/app && npx tauri build --bundles deb,rpm,appimage",
     "android:init": "cd rust/app && npx tauri android init",
-    "android:apk": "cd rust/app && npx tauri android build --apk"
+    "android:apk": "bash scripts/android-apks.sh"
   },
   "keywords": [
     "lan",

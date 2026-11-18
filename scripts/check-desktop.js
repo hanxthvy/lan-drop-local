@@ -172,7 +172,34 @@ check('workflow rilis membangun semua platform', () => {
   for (const need of ['ubuntu', 'windows', 'macos', 'android']) {
     assert(new RegExp(need, 'i').test(text), `matriks rilis tidak menyebut ${need}`);
   }
-  assert(/tauri android build/.test(text), 'workflow tidak membangun APK');
+  assert(/tauri android build|android-apks\.sh/.test(text), 'workflow tidak membangun APK');
+});
+
+// Android punya tiga berkas, bukan satu: 32-bit, 64-bit, universal. Pemecahan
+// terjadi setelah gradle, karena gradle hanya bisa memecah per-ABI.
+check('APK dipecah jadi 32-bit, 64-bit, dan universal', () => {
+  const split = path.join(ROOT, 'scripts', 'android-apk-split.py');
+  assert(fs.existsSync(split), 'scripts/android-apk-split.py tidak ada');
+  const script = fs.readFileSync(split, 'utf-8');
+  assert(/"32bit": \{"armeabi-v7a", "x86"\}/.test(script),
+    'grup 32-bit bukan armeabi-v7a + x86');
+  assert(/"64bit": \{"arm64-v8a", "x86_64"\}/.test(script),
+    'grup 64-bit bukan arm64-v8a + x86_64');
+  // resources.arsc dan .so harus tetap STORED, kalau tidak Android menolak.
+  assert(/new\.compress_type = item\.compress_type/.test(script),
+    'pemecah APK membuang jenis kompresi asli');
+
+  const wrapper = path.join(ROOT, 'scripts', 'android-apks.sh');
+  assert(fs.existsSync(wrapper), 'scripts/android-apks.sh tidak ada');
+  const wrapText = fs.readFileSync(wrapper, 'utf-8');
+  assert(/android-apk-split\.py/.test(wrapText), 'skrip pembungkus tidak memanggil pemecah');
+
+  const pkg = readJson(path.join(ROOT, 'package.json'));
+  assert(/android-apks\.sh/.test(pkg.scripts['android:apk'] || ''),
+    'npm run android:apk tidak memakai skrip pemecah');
+
+  const release = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf-8');
+  assert(/dist\/android\/\*\.apk/.test(release), 'workflow rilis tidak mengunggah hasil pemecahan');
 });
 
 // --- 3. binary desktop benar-benar melayani --------------------------------

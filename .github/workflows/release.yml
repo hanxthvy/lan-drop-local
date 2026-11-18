@@ -145,33 +145,30 @@ jobs:
 
       - run: npm ci
 
-      # Keempat ABI sekaligus supaya satu APK jalan di HP baru dan lama.
-      - name: APK
-        run: npx tauri android build --apk
-
-      - name: Tanda tangan (kalau kunci tersedia)
-        if: env.ANDROID_KEY_BASE64 != ''
+      # Satu build, tiga berkas: 32-bit (armeabi-v7a + x86), 64-bit
+      # (arm64-v8a + x86_64), dan universal. Kunci dari secret; kalau tidak
+      # ada, APK tetap dihasilkan tanpa tanda tangan.
+      - name: APK (32-bit, 64-bit, universal)
         env:
+          ANDROID_KEYSTORE: ${{ github.workspace }}/release.keystore
           ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+          ANDROID_KEY_ALIAS: landrop
         run: |
           set -euo pipefail
-          APK_DIR=rust/app/gen/android/app/build/outputs/apk/universal/release
-          UNSIGNED="$APK_DIR/app-universal-release-unsigned.apk"
-          echo "$ANDROID_KEY_BASE64" | base64 -d > /tmp/release.keystore
-          zipalign -f 4 "$UNSIGNED" /tmp/aligned.apk
-          apksigner sign --ks /tmp/release.keystore --ks-pass "pass:$ANDROID_KEY_PASS" \
-            --out "$APK_DIR/lan-drop.apk" /tmp/aligned.apk
-          apksigner verify "$APK_DIR/lan-drop.apk"
+          if [ -n "${{ secrets.ANDROID_KEY_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEY_BASE64 }}" | base64 -d > release.keystore
+          fi
+          bash scripts/android-apks.sh
 
       - name: Lampirkan ke rilis
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: rust/app/gen/android/app/build/outputs/apk/universal/release/*.apk
+          files: dist/android/*.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: lan-drop-android
           path: |
-            rust/app/gen/android/app/build/outputs/apk/**/*.apk
+            dist/android/*.apk
           if-no-files-found: error

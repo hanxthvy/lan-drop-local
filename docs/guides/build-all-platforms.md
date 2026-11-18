@@ -73,21 +73,32 @@ Sekali saja, setelah `cargo tauri android init`:
 export ANDROID_HOME=$HOME/Android/Sdk
 export NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125
 export JAVA_HOME=/usr/lib/jvm/openjdk17
-
-cd rust/app
-npx tauri android build --apk                  # semua ABI
-npx tauri android build --apk --target aarch64 # hanya arm64 (paling cepat)
 ```
 
-APK hasil build release **belum ditandatangani**. Tanda tangani sebelum
-dipasang:
+Bangun lalu pecah dalam satu perintah:
 
 ```bash
-BT=$ANDROID_HOME/build-tools/36.0.0
-$BT/zipalign -f 4 app-universal-release-unsigned.apk app-aligned.apk
-$BT/apksigner sign --ks ~/.config/lan-drop/release.keystore \
-  --ks-pass pass:landrop-dev --out lan-drop-0.1.0.apk app-aligned.apk
+npm run android:apk          # -> dist/android/lan-drop-<versi>-{32bit,64bit,universal}.apk
 ```
+
+Tiga berkas yang dihasilkan, masing-masing sudah di-zipalign dan
+ditandatangani:
+
+| Berkas | Isi | Perkiraan |
+|---|---|---|
+| `-32bit.apk` | `armeabi-v7a` + `x86` | 13,8 MB |
+| `-64bit.apk` | `arm64-v8a` + `x86_64` | 15,6 MB |
+| `-universal.apk` | keempatnya | 27,8 MB |
+
+Gradle hanya bisa memecah per-ABI, jadi pengelompokan 32/64 dikerjakan
+`scripts/android-apk-split.py` setelah build: APK universal dipangkas
+direktori `lib/<abi>/`-nya, kompresi tiap entri dipertahankan (`resources.arsc`
+dan `.so` tetap STORED, syarat targetSdk ≥ 30), lalu di-zipalign dan
+ditandatangani ulang.
+
+Kunci dicari berurutan: `ANDROID_KEYSTORE` + `ANDROID_KEY_PASS` di env,
+`~/.config/lan-drop/keystore.env`, atau tanpa tanda tangan. Di CI kuncinya
+datang dari secret `ANDROID_KEY_BASE64` dan `ANDROID_KEY_PASS`.
 
 Yang perlu diketahui tentang Android (jujur, bukan klaim):
 
