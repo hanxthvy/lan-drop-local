@@ -13,7 +13,9 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOTS = ['public/js', 'server', 'scripts', 'main.js', 'preload.js', 'tui.js'];
+// Runtime aplikasi sudah Rust; yang tersisa hanya frontend, oracle Node
+// (server/) dan skrip pemeriksa.
+const ROOTS = ['public/js', 'server', 'scripts'];
 const SKIP = new Set(['node_modules', '.git', 'dist', 'public/js/vendor']);
 
 function collect(target, acc) {

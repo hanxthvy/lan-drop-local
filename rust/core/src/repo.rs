@@ -2,11 +2,23 @@
 
 use std::path::{Path, PathBuf};
 
+/// Akar repo: folder terdekat (dari crate ini ke atas) yang punya
+/// `package.json`. Dulu `parent()` saja cukup karena crate ada di `rust/`,
+/// tetapi setelah workspace dipecah jadi `rust/core`, satu tingkat ke atas
+/// berhenti di `rust/` — dan versi yang dilaporkan `/status` jadi `0.0.0`.
 pub fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+    let start = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut dir = start.as_path();
+    for _ in 0..6 {
+        if dir.join("package.json").exists() {
+            return dir.to_path_buf();
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+    start.parent().map(Path::to_path_buf).unwrap_or(start)
 }
 
 pub fn read_package_version() -> Option<String> {

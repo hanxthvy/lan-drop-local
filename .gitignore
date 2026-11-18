@@ -18,3 +18,11 @@ electron.zip
 
 # Artefak build Rust
 rust/target/
+
+# Proyek Android hasil `tauri android init`: konfigurasi ikut repo, artefak build tidak.
+rust/app/gen/android/.gradle/
+rust/app/gen/android/build/
+rust/app/gen/android/app/build/
+rust/app/gen/android/local.properties
+rust/app/gen/android/app/src/main/jniLibs/
+rust/app/gen/android/app/src/main/java/*/*/*/generated/

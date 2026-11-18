@@ -4,32 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**LAN DROP** is a peer-to-peer LAN file sharing app built with Node.js + Express. Users on the same WiFi share files browser-to-browser (mobile ↔ laptop). No cloud, no setup — both sides open the same URL.
+**LAN DROP** is a peer-to-peer LAN file sharing app. It ships as a native Rust
+desktop app (Tauri) that serves the same browser UI to phones on the same WiFi.
+No cloud, no setup — both sides open the same URL.
 
 ## Stack
 
-- **Runtime:** Node.js (CommonJS)
-- **Server:** Express 5.x (static + REST API)
-- **Frontend:** Vanilla JS (ES modules, no build step), HTML, CSS (no frameworks)
-- **File upload (browser→server):** multer 2.x
-- **Discovery:** UDP broadcast (dgram) port 41234 (override: `DISCOVERY_PORT`)
-- **Transfer:** Raw TCP (net module) port 3001, custom length-prefixed frame protocol
-- **UI language:** Bahasa Indonesia
-- **Desktop packaging:** Electron + electron-builder (NSIS)
-- **Rust core (`rust/`)** — port inti server: `axum` + `tokio`, satu binary.
-  Kontrak kabel identik dengan Node (frame TCP, announce UDP, kunci resume,
-  cookie akses). Frontend `public/` dipakai apa adanya. Lihat ADR-0013.
+- **Runtime aplikasi:** Rust. **Tidak ada Node/Electron di jalur runtime.**
+- **Server:** `rust/core` — `axum` + `tokio` (HTTP API, discovery UDP, transfer TCP)
+- **Aplikasi desktop:** `rust/app` — Tauri 2 + webkit2gtk. Jendela memuat
+  `http://127.0.0.1:<port>` dari proses yang sama; tanpa IPC. Lihat ADR-0015.
+- **Frontend:** Vanilla JS (ES modules, tanpa build step), HTML, CSS.
+  `public/` disajikan apa adanya, tidak boleh diubah untuk kepentingan shell.
+- **Discovery:** UDP broadcast port 41234 (override: `DISCOVERY_PORT`)
+- **Transfer:** TCP port 3001, frame length-prefixed
+- **UI language:** English + Bahasa Indonesia (`public/locales/`)
+- **npm:** hanya untuk dependensi pemeriksaan + `scripts/`. `npm start`
+  membungkus `cargo run`. `server/` (Node/Express) disimpan sebagai **oracle**
+  perilaku yang dibandingkan lewat `check:parity` — bukan runtime.
 
 ## Running
 
 ```bash
-npm install
-npm start                          # menu launcher (↑/↓) — pilih terminal / tray
-npm run server                     # langsung server (ini yang dipakai di Termux)
-node server/index.js              # http://localhost:3000
-PORT=4000 TRANSFER_PORT=4001 node server/index.js   # second instance for testing
-npm run electron-dev               # desktop app via Electron
-npm run build-win                  # build NSIS installer -> dist/*.exe
+npm start                          # aplikasi desktop (cargo run -p lan-drop)
+./rust/target/release/lan-drop     # binary desktop hasil build
+./rust/target/release/lan-drop --core   # headless, tanpa jendela
+PORT=4000 ./rust/target/release/lan-drop
+cargo tauri build --manifest-path rust/app/Cargo.toml   # bundel .deb/AppImage/NSIS
+node server/index.js               # oracle Node (untuk perbandingan, bukan aplikasi)
 ```
 
 ## Testing & QA
@@ -50,12 +52,13 @@ npm run check:parity   # Node vs Rust: bentuk respons 24 endpoint (SAMA/BEDA/BEL
 npm run check:rust-core # dua instance Rust: teks, file, resume, batal, riwayat
 npm run check:rust-hardening # input cacat, banjir koneksi, traversal, restart, rate limit
 npm run core:test      # unit test Rust (nama file, kunci resume, host/target guard)
-npm run core:lint      # clippy -D warnings (fallback clippy-driver)
+npm run core:lint      # clippy -D warnings (crate core)
+npm run app:lint       # clippy -D warnings (crate desktop)
 npm run check:rust-ci  # workflow CI benar-benar menguji Rust (fmt, clippy, test)
-npm run test:core      # build + lint + seluruh pemeriksaan inti Rust
-                         # (bangun dulu: cd rust && cargo build --release)
-npm run check:tui      # menu launcher tui.js (panah, Enter, escape terpotong) — tanpa tty
-npm run check:tray     # struktur icon.ico + tray tidak boleh menarik Electron lagi
+npm run test:core      # build kedua crate + lint + seluruh pemeriksaan Rust/desktop
+npm run check:desktop  # tidak ada Node/Electron di jalur aplikasi, bundel semua platform, binary melayani
+npm run bundle:linux   # .deb + .rpm (AppImage tidak dipakai, lihat ADR-0015)
+npm run android:apk    # .apk (JDK 17 + Android SDK/NDK; lihat docs/guides/build-all-platforms.md)
 npm run smoke          # 3 viewport + cek error console (butuh server jalan)
 npm run verify:qr      # decode QR dengan OpenCV, cocokkan dengan URL di UI
 npm run verify:pwa     # manifest + ikon + service worker
@@ -82,7 +85,7 @@ arsitektur yang sulit dibalik ditulis sebagai ADR baru.
 ## Architecture
 
 ### Server entry (`server/index.js`)
-Express app serving `public/` statically. Mounts REST routes for discovery and transfer. Multer upload saves to `<data dir>/uploads` (`%APPDATA%\lan-drop\uploads` / `~/.lan-drop/uploads`, or `$LANDROP_UPLOAD_DIR` for Electron ASAR compat) — never inside the package folder, so `npm update` cannot wipe a transfer waiting to resume. On startup, gets LAN IPs filtering out VM/Docker/vEthernet/WARP adapters, then starts UDP discovery + TCP transfer server.
+The legacy Node server serves as the behaviour oracle only. The shipped app uses `rust/core/src/httpapi.rs` for static `public/` + REST routes, `discovery.rs` for UDP, and `transfer.rs` for TCP. Core and desktop are exercised by `npm run test:core`; run `node server/index.js` only when comparing parity or testing the old implementation.
 
 ### Discovery (`server/discovery.js`)
 UDP broadcast on port 41234. Sends JSON `announce` packet every 2s `{deviceId, deviceName, ip, port, transferPort}`. Listener populates `knownDevices` Map; entries expire after 10s no broadcast, cleaned every 3s.
@@ -229,34 +232,28 @@ request, accept/reject via `/transfer/respond`.
 **Panel Sambung:** `GET /me` mengembalikan `{ deviceName, urls[] }`. Frontend
 merender QR di browser (tanpa CDN) supaya perangkat kedua tinggal scan.
 
-### Electron Wrapper (`main.js` + `preload.js`)
-`main.js` requires Express server directly in the main process (not child process). Sets `LANDROP_UPLOAD_DIR` to `app.getPath('temp')/landrop-uploads/` before requiring server — critical for ASAR compatibility. `preload.js` is intentionally empty (UI communicates via HTTP fetch, same as browser). On close, `app.quit()` prevents orphan node.exe.
+### Aplikasi desktop (`rust/app`)
 
-**Mode tray versi Electron** (`electron . --tray`): tidak ada jendela sama sekali, cuma ikon di notification area. Menu ikon: buka jendela, buka dashboard di browser, salin alamat dashboard, keluar. `window-all-closed` di mode ini **tidak** mematikan proses — kalau mematikan, tray-nya ikut hilang begitu jendela pertama ditutup. Ikon memakai `public/icons/icon-192.png`. Jalur ini hanya dipakai installer `build-win`.
+`rust/app/src/main.rs` menjalankan `lan_drop_core::start_server` di proses yang
+sama (bukan proses anak), lalu membuka jendela `WebviewUrl::External` ke
+`http://127.0.0.1:<port>`. Konsekuensi yang mengikat:
 
-### Tray tanpa Electron (`server/tray.js`) — jalur `npm i -g`
-
-Pengguna npm tidak memasang Electron (`devDependencies`), jadi tray di jalur itu **tidak** lewat `main.js`. `server/index.js --tray` menyalakan ikon sendiri setelah semua listener siap:
-
-| Platform | Mekanisme | Catatan |
-|---|---|---|
-| Windows | `server/tray-win.ps1` — PowerShell `NotifyIcon` + `ContextMenuStrip` | Nol dependency; `System.Windows.Forms` sudah ada di OS. Butuh `public/icons/icon.ico` |
-| Linux/macOS | `systray2` (ESM, lewat `import()`) | Di-install lazy ke `<data dir>/runtime` (~3 MB). Linux butuh `libayatana-appindicator` |
-| Termux/Android | — | Tidak ada notification area; baris menu disembunyikan |
-
-Kontrak PowerShell↔Node: **stdout satu JSON per baris** (`{"type":"quit"}` / `{"type":"orphan"}`), stdin tidak dipakai. Proses PowerShell memantau `-ParentPid` dan keluar sendiri kalau induknya mati — tanpa itu ikon jadi hantu di notification area.
-
-**Aturan yang mengikat:**
-- `startTray()` **tidak pernah melempar**. Tray itu pelengkap; PowerShell diblokir kebijakan atau `libappindicator` tidak ada = warning di log, server tetap melayani.
-- `TRAY_MODE` di `server/index.js` menyertakan `!process.versions.electron` — kalau tidak, di dalam Electron muncul **dua** ikon.
-- Mode tray **tidak** membuka browser otomatis (alamatnya ada di menu ikon).
-- `icon.ico` dihasilkan `npm run icons` (`encodeIco` di `scripts/generate-icons.js`, BMP DIB 32-bit — Windows menolak PNG-dalam-ICO untuk `NotifyIcon`).
-- `scripts/check-tray.js` menjaga: struktur `.ico`, ukuran 16/32 ada, dan `tui.js`/`server/tray.js` tidak menarik Electron lagi.
-
-### Launcher (`tui.js`)
-`npm start` menampilkan menu `↑/↓` (tanpa dependency: `setRawMode` + ANSI), lalu memilih: server di terminal ini (`node server/index.js`, sama dengan `npm run server`) atau proses lepas **detached** (`spawn(..., {detached:true, stdio:'ignore'})` + `unref()`) yang hidup di ikon tray. stdin bukan TTY (dipipe, skrip, Termux tanpa tty) = menu dilewati, server langsung jalan. Logika tombol & menu dipisah sebagai fungsi murni supaya bisa diuji tanpa terminal (`npm run check:tui`).
-
-Baris tray disembunyikan lewat `trayAvailable()` kalau memang tidak mungkin jalan: Termux (tidak ada notification area) atau Windows tanpa `public/icons/icon.ico`. Di Linux/macOS selalu ditampilkan — `systray2` di-install saat dipakai, dan kalau gagal server tetap jalan.
+- **Tidak ada IPC.** Tidak ada `preload`, tidak ada `contextBridge`, tidak ada
+  `window.landropDesktop`. Frontend bicara ke endpoint HTTP yang sama seperti HP.
+- **Mode tanpa jendela**: `--core`, `--headless`, atau `LANDROP_HEADLESS=1` →
+  `run_cli`, dipakai di server dan di pengujian.
+- **Tray pelengkap, bukan syarat.** Di Linux butuh `libayatana-appindicator3`;
+  kalau gagal, `build_tray` hanya mencetak satu baris dan aplikasi tetap jalan.
+  Menu: buka jendela, buka dashboard di browser, salin alamat, keluar.
+  `LANDROP_TRAY=1` = mulai tanpa jendela.
+- **Keluar rapi**: `RunEvent::Exit` memanggil `ServerHandle::stop()` supaya
+  riwayat yang masih di buffer tertulis (dijaga `check-settings.js`).
+- **Ikon** di `rust/app/icons/` (hasil turunan `public/icons/icon-512.png`),
+  dipakai tray dan bundel.
+- `scripts/check-desktop.js` menjaga semuanya: entrypoint Node tidak boleh
+  muncul lagi, `package.json` tanpa `main`/dependensi runtime, `app` wajib pakai
+  `start_server`, `frontendDist` wajib `public/`, dan binary harus melayani
+  `/status` + dashboard sendirian.
 
 ### Routing
 

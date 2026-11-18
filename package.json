@@ -1,8 +1,7 @@
 {
   "name": "lan-drop-local",
   "version": "1.2.16",
-  "description": "LAN file sharing via browser — no cloud, no setup",
-  "main": "main.js",
+  "description": "LAN DROP — aplikasi desktop Rust (Tauri) untuk kirim file antar perangkat di Wi-Fi yang sama",
   "bin": {
     "lan-drop": "tui.js"
   },
@@ -16,11 +15,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node tui.js",
-    "server": "node server/index.js",
-    "start:debug": "node server/index.js --debug",
-    "electron-dev": "electron .",
-    "build-win": "electron-builder --win",
+    "tauri": "tauri",
+    "start": "cargo run --release -p lan-drop",
+    "server": "cargo run --release -p lan-drop -- --core",
     "check": "node scripts/check-js.js",
     "audit": "node scripts/audit-charset.js",
     "check:unused": "node scripts/check-unused-imports.js",
@@ -35,10 +32,7 @@
     "verify:qr": "node scripts/verify-qr.js --url http://localhost:3000",
     "verify:pwa": "node scripts/verify-pwa.js --url http://localhost:3000",
     "icons": "node scripts/generate-icons.js",
-    "e2e": "node scripts/e2e.js",
-    "test": "node scripts/check-js.js && node scripts/check-i18n.js && node scripts/audit-charset.js && node scripts/check-unused-imports.js && node scripts/check-security.js && node scripts/check-identity.js && node scripts/check-routing.js && node scripts/check-discovery-rebind.js && node scripts/check-autoapprove.js && node scripts/check-ack.js && node scripts/check-settings.js && node scripts/check-dashboard.js && node scripts/check-tui.js && node scripts/check-tray.js && node scripts/check-dashboard-ago.js && node scripts/check-send-flow.js && node scripts/check-access.js && node scripts/check-transfer-integrity.js && node scripts/check-resume.js",
-    "check:tui": "node scripts/check-tui.js",
-    "check:tray": "node scripts/check-tray.js",
+    "test": "node scripts/check-js.js && node scripts/check-i18n.js && node scripts/audit-charset.js && node scripts/check-unused-imports.js && node scripts/check-security.js && node scripts/check-identity.js && node scripts/check-routing.js && node scripts/check-discovery-rebind.js && node scripts/check-autoapprove.js && node scripts/check-ack.js && node scripts/check-settings.js && node scripts/check-dashboard.js && node scripts/check-dashboard-ago.js && node scripts/check-send-flow.js && node scripts/check-access.js && node scripts/check-transfer-integrity.js && node scripts/check-resume.js && npm run check:desktop",
     "check:dashboard-ago": "node scripts/check-dashboard-ago.js",
     "check:send-flow": "node scripts/check-send-flow.js",
     "check:settings": "node scripts/check-settings.js",
@@ -50,13 +44,20 @@
     "check:resume": "node scripts/check-resume.js",
     "check:parity": "node scripts/check-parity.js",
     "check:rust-core": "node scripts/check-rust-core.js",
-    "core:build": "cargo build --release --manifest-path rust/Cargo.toml",
-    "core": "node scripts/run-core.js",
+    "core:build": "cargo build --release --manifest-path rust/Cargo.toml -p lan-drop-core",
+    "core": "cargo run --release --manifest-path rust/Cargo.toml -p lan-drop-core",
     "check:rust-hardening": "node scripts/check-rust-hardening.js",
-    "core:test": "cargo test --release --manifest-path rust/Cargo.toml",
-    "test:core": "npm run core:build && npm run core:lint && npm run core:test && npm run check:parity && npm run check:rust-core && npm run check:rust-hardening && npm run check:rust-ci",
+    "core:test": "cargo test --release --manifest-path rust/Cargo.toml -p lan-drop-core",
+    "test:core": "npm run core:build && npm run app:build && npm run core:lint && npm run core:test && npm run check:parity && npm run check:rust-core && npm run check:rust-hardening && npm run check:rust-ci && npm run check:desktop",
     "core:lint": "node scripts/core-lint.js",
-    "check:rust-ci": "node scripts/check-rust-ci.js"
+    "check:rust-ci": "node scripts/check-rust-ci.js",
+    "desktop": "cargo run --release -p lan-drop",
+    "app:build": "cargo build --release --manifest-path rust/Cargo.toml -p lan-drop",
+    "check:desktop": "node scripts/check-desktop.js",
+    "bundle": "cd rust/app && npx tauri build",
+    "bundle:linux": "cd rust/app && npx tauri build --bundles deb,rpm,appimage",
+    "android:init": "cd rust/app && npx tauri android init",
+    "android:apk": "cd rust/app && npx tauri android build --apk"
   },
   "keywords": [
     "lan",
@@ -78,41 +79,13 @@
   "bugs": {
     "url": "https://github.com/Godisheree/lan-drop-local/issues"
   },
-  "engines": {
-    "node": ">=18"
-  },
   "overrides": {
     "body-parser": "^2.4.0"
   },
-  "dependencies": {
-    "@electron-internal/extract-zip": "^1.0.4",
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
     "express": "^5.3.0",
     "multer": "^2.5.0"
-  },
-  "devDependencies": {
-    "electron": "^43.1.0",
-    "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "appId": "com.landrop.app",
-    "productName": "LAN Drop",
-    "win": {
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "server/**/*",
-      "public/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "extraMetadata": {
-      "main": "main.js"
-    }
   }
 }

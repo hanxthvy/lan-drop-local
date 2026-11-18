@@ -10,23 +10,29 @@
 //!   * announce UDP: `{type:"announce", deviceId, deviceName, ip, port, transferPort}`
 //!   * kunci resume: sha1(`senderId|resumeId|fileName|fileSize`) → 16 hex
 //!   * cookie `landrop_key`, header `X-Landrop-Key`, `?k=` → cookie + redirect
+//!
+//! Crate ini adalah inti aplikasi: server HTTP, discovery UDP, transfer TCP.
+//! Yang memakainya ada dua: binari CLI (`lan-drop-core`) untuk mode terminal,
+//! dan aplikasi desktop (`lan-drop`, Tauri) yang menjalankan server yang sama
+//! di belakang jendela. Keduanya lewat `start_server`, jadi tidak ada jalur
+//! kedua yang harus dirawat terpisah.
 
-mod access;
-mod discovery;
-mod ffmpeg;
-mod history;
-mod httpapi;
-mod logbus;
-mod pin;
-mod platform;
-mod ports;
-mod protocol;
-mod repo;
-mod security;
-mod settings;
-mod state;
-mod thumbnail;
-mod transfer;
+pub mod access;
+pub mod discovery;
+pub mod ffmpeg;
+pub mod history;
+pub mod httpapi;
+pub mod logbus;
+pub mod pin;
+pub mod platform;
+pub mod ports;
+pub mod protocol;
+pub mod repo;
+pub mod security;
+pub mod settings;
+pub mod state;
+pub mod thumbnail;
+pub mod transfer;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -121,8 +127,29 @@ fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-#[tokio::main]
-async fn main() {
+/// Server yang sudah mendengarkan. Pemanggil boleh memakai portnya untuk
+/// membuka jendela atau mencetak alamat, lalu menghentikannya lewat
+/// `stop`.
+pub struct ServerHandle {
+    pub http_port: u16,
+    pub transfer_port: u16,
+    pub state: Arc<AppState>,
+    stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl ServerHandle {
+    /// Hentikan listener HTTP dengan rapi. Discovery dan transfer ikut mati
+    /// bersama runtime saat proses berakhir.
+    pub fn stop(mut self) {
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+/// Nyalakan server di background task dan kembalikan alamat yang benar-benar
+/// listen. `http_port` = `None` berarti ambil dari env `PORT` (default 3000).
+pub async fn start_server(http_port: Option<u16>) -> Result<ServerHandle, String> {
     let data_dir = platform::data_dir();
     let settings = Arc::new(Settings::load(&data_dir));
     if settings.access_key().is_empty() {
@@ -141,7 +168,10 @@ async fn main() {
     let thumbnails = Arc::new(Thumbnails::new(data_dir.join("thumbnails")));
     let transfers = Arc::new(Transfers::new());
 
-    let http_port = env_port("PORT", 3000);
+    let http_port = match http_port {
+        Some(port) => port,
+        None => env_port("PORT", 3000),
+    };
     let transfer_port = env_port("TRANSFER_PORT", http_port.saturating_add(1));
     // Port discovery default sama dengan Node; env dipakai supaya dua instance
     // bisa hidup berdampingan di satu host (pengujian, dua akun).
@@ -201,46 +231,80 @@ async fn main() {
     discovery.start();
     transfer::start_server(state.clone());
 
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let app = router(state.clone());
+    tokio::spawn(async move {
+        if let Err(err) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = rx.await;
+            println!("[Server] Shutting down...");
+        })
+        .await
+        {
+            eprintln!("[Server] berhenti: {err}");
+        }
+    });
+
+    Ok(ServerHandle {
+        http_port: port,
+        transfer_port: state.ports.transfer(),
+        state,
+        stop_tx: Some(tx),
+    })
+}
+
+/// Banner yang sama dengan versi Node — alamat dashboard, IP LAN, peringatan
+/// PIN bawaan. Dipakai mode terminal dan log aplikasi desktop.
+pub fn print_banner(handle: &ServerHandle) -> Vec<String> {
+    let state = &handle.state;
+    let port = handle.http_port;
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("LAN DROP server — Rust on http://localhost:{port}"));
+    lines.push(format!("[Server] Device name: {}", state.device_name));
     let ips = platform::lan_interfaces();
-    println!("LAN DROP server — Rust on http://localhost:{port}");
-    println!("[Server] Device name: {}", state.device_name);
     if ips.is_empty() {
-        println!("⚠️  No LAN IP found — check your WiFi connection");
+        lines.push("\u{26a0}\u{fe0f}  No LAN IP found — check your WiFi connection".to_string());
     } else {
         for (name, ip, _) in &ips {
-            println!("📡 {name} → http://{ip}:{port}");
+            lines.push(format!("\u{1f4e1} {name} \u{2192} http://{ip}:{port}"));
         }
     }
-    if pin.is_default() {
-        println!(
-            "🔑 Dashboard PIN is still the default: {} — change it in the dashboard so Wi-Fi neighbours cannot open your transfer history.",
-            pin.pin()
-        );
+    if state.pin.is_default() {
+        lines.push(format!(
+            "\u{1f511} Dashboard PIN is still the default: {} — change it in the dashboard so Wi-Fi neighbours cannot open your transfer history.",
+            state.pin.pin()
+        ));
     }
-    println!(
+    lines.push(format!(
         "[Server] Port {port} (HTTP) & {} (transfer) listening on 0.0.0.0 — other devices on the same network can reach it",
-        state.ports.transfer()
-    );
+        handle.transfer_port
+    ));
     let other = ips.first().map(|(_, ip, _)| ip.clone());
-    println!(
+    lines.push(format!(
         "✅ LAN DROP is running — dashboard: http://localhost:{port}/dashboard{}",
         other
             .map(|ip| format!("  •  from another device: http://{ip}:{port}/dashboard"))
             .unwrap_or_default()
-    );
-
-    let app = router(state.clone());
-    if let Err(err) = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-        println!("[Server] Shutting down...");
-    })
-    .await
-    {
-        eprintln!("[Server] berhenti: {err}");
-        std::process::exit(1);
+    ));
+    for line in &lines {
+        println!("{line}");
     }
+    lines
+}
+
+/// Mode terminal: banner ke stdout, jalan sampai Ctrl+C.
+pub async fn run_cli() {
+    let handle = match start_server(None).await {
+        Ok(handle) => handle,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
+    print_banner(&handle);
+    let _ = tokio::signal::ctrl_c().await;
+    handle.stop();
 }

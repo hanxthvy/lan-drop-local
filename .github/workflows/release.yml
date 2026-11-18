@@ -1,0 +1,117 @@
+name: Release
+
+# Satu tag → bundel untuk semua platform yang didukung.
+# Build dilakukan di runner aslinya, bukan cross-compile: .dmg/NSIS butuh
+# toolchain host, dan hasil lintas-arsitektur tidak boleh diklaim teruji.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x86_64
+            rust-target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            name: windows-x86_64
+            rust-target: x86_64-pc-windows-msvc
+          - os: macos-14
+            name: macos-aarch64
+            rust-target: aarch64-apple-darwin
+          - os: macos-13
+            name: macos-x86_64
+            rust-target: x86_64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Dependensi Linux (webkit2gtk, rpm)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev pkg-config build-essential \
+            rpm
+
+      - run: npm ci
+
+      # deb + rpm (Linux), NSIS .exe (Windows), .app/.dmg (macOS)
+      # ditentukan isi `bundle.targets`; CLI memilih yang relevan per host.
+      - name: Bundel
+        run: npx tauri build --target ${{ matrix.rust-target }}
+        working-directory: rust/app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lan-drop-${{ matrix.name }}
+          path: |
+            rust/target/${{ matrix.rust-target }}/release/bundle/**
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: NDK 26.1
+        run: |
+          sdkmanager --install "ndk;26.1.10909125" "platforms;android-36" "build-tools;36.0.0"
+
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Keempat ABI sekaligus supaya satu APK jalan di HP baru dan lama.
+      - name: APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+          NDK_PATH: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+        run: npx tauri android build --apk
+        working-directory: rust/app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lan-drop-android
+          path: |
+            rust/app/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

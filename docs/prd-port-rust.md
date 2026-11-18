@@ -204,22 +204,25 @@ Gate: `check-resume` (10 cek, termasuk putus di tengah), `check-transfer-integri
 hijau **dan** transfer antar dua instance Rust + satu instance Node (uji
 campuran, dua arah).
 
-### Fase 5 — Cutover inti (setengah jalan: inti sudah bisa dipakai, `npm start` masih Node)
+### Fase 5 — Cutover inti (selesai)
 
 - `npm start` memakai binary Rust; Node hanya untuk pemeriksa lama.
-  Setengah langkah yang sudah jalan: `npm run core` menjalankan inti Rust
-  sendiri, dan `LANDROP_CORE=rust npm run electron-dev` menjalankan shell
-  Electron dengan server Rust (tray/menu tetap di Node). Yang belum: menjadikan
-  itu default untuk paket distribusi.
+  Selesai 2026-11-18: `main.js`, `preload.js`, `tui.js` dihapus, `package.json`
+  tanpa `main` dan tanpa dependensi runtime, `npm start` = `cargo run -p
+  lan-drop`. Node tersisa hanya di `server/` sebagai oracle dan di `scripts/`.
 - Jalankan `npm test` penuh dengan `LANDROP_SERVER_BIN`; semua hijau.
 - Ukur ulang: RSS, CPU saat transfer 1 GB, waktu start, ukuran binary.
 - ADR-0013 naik status jadi "Diterima", dokumen ini diperbarui dengan angka.
 
-### Fase 6 — Shell desktop (5-7 hari)
+### Fase 6 — Shell desktop (inti selesai; verifikasi dua OS belum)
 
 Tauri menggantikan Electron: tray, autostart, single-instance, dialog folder,
 buka browser, updater. Dibangun dan diuji di Windows + Linux secara nyata.
-Gate: daftar periksa manual per OS (di lampiran B), ditandatangani maintainer.
+Sudah dikerjakan: crate `rust/app` (Tauri 2) memakai `lan_drop_core::start_server`,
+jendela memuat `http://127.0.0.1:<port>`, tray + menu, `--core` headless, keluar
+rapi lewat `RunEvent::Exit`. Diuji di Linux: build, `/status`, jendela di Xvfb
+(WebKitWebProcess hidup), dan `scripts/check-desktop.js`. Belum: jalur Windows
+(pemisah path, `.exe`, autostart) dan penandatanganan maintainer per OS.
 
 ### Fase 7 — Bersih-bersih (2 hari)
 
@@ -325,7 +328,8 @@ sekaligus kecuali cutover (fase 5).
 - [ ] Uji campuran Node↔Rust dua arah lolos.
 - [ ] `attack-lan.js` sama hasilnya.
 - [ ] Angka performa dicatat di dokumen ini (RSS, ukuran, waktu start, CPU).
-- [ ] Shell Tauri setara Electron (lampiran B) di dua OS.
+- [x] Shell Tauri menggantikan Electron di Linux (build, jendela, tray, headless).
+- [ ] Shell Tauri diuji di Windows.
 - [ ] ADR-0013 diterima, README/CLAUDE.md diperbarui, `server/` dihapus.
 
 ---

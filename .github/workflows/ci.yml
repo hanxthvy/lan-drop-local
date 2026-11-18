@@ -8,6 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Yang diuji di sini adalah oracle perilaku (server/ Node) dan pemeriksa
+  # regresi. Runtime aplikasi sudah tidak menyentuh Node sama sekali.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -21,15 +23,28 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Dependensi desktop (webkit2gtk, appindicator)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev pkg-config build-essential
+      # check:desktop menjalankan binary hasil build; tanpa langkah ini
+      # pemeriksaan itu akan gagal dan CI terlihat hijau tanpa bukti.
+      - run: cargo build --release --manifest-path rust/Cargo.toml
       # --omit=dev tidak dipakai: sebagian pemeriksaan butuh devDependency.
       - run: npm ci
       - run: npm test
 
-  # Inti Rust dulu tidak diuji siapa pun: 6k baris yang hanya diperiksa kalau
-  # seseorang ingat menjalankan `npm run test:core` di mesinnya sendiri.
+  # Inti Rust + aplikasi desktop. Keduanya harus dibangun penuh: jendela Tauri
+  # memakai webkit2gtk, dan dependensi sistemnya tidak ada di runner default.
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       # Versi dipin: `cargo fmt --check` peka terhadap versi rustfmt, dan
@@ -37,11 +52,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: rust
+      - name: Dependensi desktop (webkit2gtk, appindicator)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev pkg-config build-essential
       - run: cargo fmt --manifest-path rust/Cargo.toml --check
       # Peringatan lint adalah bug yang belum kejadian.
       - run: cargo clippy --release --all-targets --manifest-path rust/Cargo.toml -- -D warnings
       - run: cargo test --release --manifest-path rust/Cargo.toml
+      # Build kedua crate: CLI/inti dan aplikasi desktop.
       - run: cargo build --release --manifest-path rust/Cargo.toml

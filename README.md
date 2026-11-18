@@ -42,33 +42,33 @@ straight in the save folder on your PC (or the other way around).
 
 ## Install
 
-Requires Node.js 18+.
+The desktop app is native Rust (Tauri) — no Node, no Electron at runtime. `public/`
+is served as-is by the Rust server inside the same process.
 
-**As the `lan-drop` command** — callable from any folder, no `cd` into the repo:
-
-```bash
-npm i -g lan-drop-local
-lan-drop
-```
-
-The menu offers two ways to run: keep the server in this terminal, or detach it
-into the background behind a **tray icon** in the notification area. No Electron
-download — see [Notes](#notes).
-
-Install straight from GitHub instead — no git, no login, works on both PC and
-Termux:
+**Build from source** (needs a Rust toolchain and the WebKitGTK dev packages):
 
 ```bash
-npm i -g https://github.com/Godisheree/lan-drop-local/archive/refs/heads/main.tar.gz
-lan-drop
+git clone https://github.com/Godisheree/lan-drop-local
+cd lan-drop-local
+cargo build --release --manifest-path rust/Cargo.toml
+./rust/target/release/lan-drop
 ```
+
+Linux packages for building: `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+librsvg2-dev libsoup-3.0-dev pkg-config build-essential`. At runtime the tray needs
+`libayatana-appindicator3`; without it the app still runs, it just prints a line and
+opens the window only.
+
+Before the desktop shell existed this project shipped as a Node CLI/Electron app.
+Those entrypoints (`main.js`, `preload.js`, `tui.js`) are gone; `npm` is now only used
+for the regression scripts, and `server/` is kept as the behaviour oracle the Rust
+core is compared against.
 
 ## Usage
 
-1. Run `lan-drop` (or `npm start`).
-2. The terminal prints the dashboard address, e.g. `http://localhost:3000/dashboard`.
-   Open it in the PC browser, or use the LAN address (`http://192.168.x.x:3000/dashboard`)
-   from a phone on the same Wi-Fi.
+1. Run `./rust/target/release/lan-drop` (or `npm start`, or `cargo run --release -p lan-drop`).
+2. A window opens on `http://127.0.0.1:3000`; the terminal also prints the LAN address,
+   e.g. `http://192.168.x.x:3000/dashboard`, for phones on the same Wi-Fi.
 3. **The monitor page (`/dashboard`) asks for a PIN.** The default PIN is `123456`,
    and the login page shows that hint until you change it. Change it from the
    dashboard (PIN card) so nobody else on the same Wi-Fi can open your transfer
@@ -78,8 +78,35 @@ lan-drop
    folder.
 4. Send and receive files from the main UI (`http://192.168.x.x:3000/`) — that
    page is **not** locked, so your phone never has to type anything to send.
+5. The tray icon has *Buka LAN DROP*, *Buka dashboard di browser*, *Salin alamat
+   dashboard* and *Keluar*. Start with `LANDROP_TRAY=1` to begin hidden in the tray
+   instead of opening a window.
 
-Stop it with `Ctrl+C` in the terminal. Change the port with `PORT=4000 lan-drop`.
+Headless / server mode — same binary, no window:
+
+```bash
+./rust/target/release/lan-drop --core     # or --headless, or LANDROP_HEADLESS=1
+```
+
+Packaging uses the Tauri CLI from cargo:
+
+```bash
+cargo install tauri-cli --version '^2'
+npm run bundle:linux     # .deb, .rpm, AppImage
+npm run bundle           # whatever the host builds (.exe on Windows, .dmg on macOS)
+npm run android:apk      # .apk (needs JDK 17 + Android SDK/NDK, see the guide)
+```
+
+| Platform | Artifact | Status |
+|---|---|---|
+| Linux | `.deb`, `.rpm`, AppImage | built here |
+| Windows | NSIS `.exe` | workflow ready, not built on this machine |
+| macOS | `.app`, `.dmg` | workflow ready, not built on this machine |
+| Android | `.apk` (arm64/armv7/x86_64) | built and signed here, not yet run on a phone |
+
+Step-by-step per platform: [docs/guides/build-all-platforms.md](docs/guides/build-all-platforms.md).
+
+Change the port with `PORT=4000 ./rust/target/release/lan-drop`.
 If that port is already taken by another app, LAN DROP moves up to the next free
 port on its own and prints the new address — no manual hunting.
 
@@ -99,13 +126,10 @@ port on its own and prints the new address — no manual hunting.
 
 ## Notes
 
-- **The tray icon does not need Electron.** On Windows it is a PowerShell
-  `NotifyIcon` (already part of the OS); on Linux and macOS it is `systray2`,
-  downloaded once into the data folder the first time the tray is used — that
-  install is ~3 MB, not 240 MB, and failing it leaves the server running anyway.
-  Linux needs `libayatana-appindicator` (or `libappindicator3`) from the distro.
-  Android/Termux has no notification area, so the tray row is hidden there.
-  Electron is still used for the `build-win` installer only (`devDependencies`).
+- **No Electron download.** The tray is native: `libayatana-appindicator` through
+  Tauri on Linux, the system tray on Windows and macOS. Nothing is fetched on
+  first run, and a missing appindicator only disables the tray — the app and the
+  server keep working.
 - **History and settings live outside the install folder**, so they survive
   package updates: `%APPDATA%\lan-drop` (Windows) or `~/.lan-drop` (Termux/Linux).
 
@@ -121,24 +145,36 @@ Reasoning lives in [`docs/adr/`](docs/adr) — start with
 [ADR-0007](docs/adr/0007-keamanan-berlapis-tanpa-autentikasi.md) and
 [ADR-0011](docs/adr/0011-batas-frame-tcp-dan-host-guard.md).
 
-## Rust core
+## Rust core & desktop app
 
-The server core is being ported to Rust (`rust/`) with the same wire protocol:
-same TCP frames, same UDP announce, same resume key, same access cookie. The
-frontend in `public/` is served as-is, no build step. The two implementations can
-talk to each other — a Rust sender to a Node receiver and back are both tested.
+Everything that runs is Rust, in one workspace:
+
+- `rust/core` — HTTP API, UDP discovery, TCP transfer, resume, PIN sessions,
+  thumbnails, settings. Exposed as a library (`lan_drop_core`) and a CLI binary
+  (`lan-drop-core`).
+- `rust/app` — the desktop binary (`lan-drop`). It starts the core with
+  `start_server`, then opens a WebKit window on `http://127.0.0.1:<port>`. Tray,
+  single window, clean shutdown, and `--core` for headless use. No IPC layer: the
+  window talks to the same HTTP endpoints a phone does.
+
+Wire protocol is identical to the old Node implementation — same TCP frames, same
+UDP announce, same resume key, same access cookie — so old and new clients still
+transfer to each other. `public/` is untouched, no build step.
 
 ```bash
-npm run core:build                   # cargo build --release
-npm run core                         # run the Rust core on its own
+npm start                            # desktop app (build + run)
+npm run server                       # headless core, no window
+npm run core:build                   # cargo build --release -p lan-drop-core
+npm run app:build                    # cargo build --release -p lan-drop
 npm run core:test                    # Rust unit tests
 npm run check:rust-core              # end-to-end: two cores, text/file/resume/cancel
 npm run check:rust-hardening         # abuse: bad frames, floods, traversal, restarts
+npm run check:desktop                # no Node/Electron in the app path, binary serves
 npm run test:core                    # all of the above in one go
-LANDROP_CORE=rust npm run electron-dev   # Electron shell, Rust server
 ```
 
 Reasoning and the phase plan: [`docs/adr/0013`](docs/adr/0013-port-inti-ke-rust.md),
+[`docs/adr/0015`](docs/adr/0015-desktop-native-tauri.md),
 [`docs/prd-port-rust.md`](docs/prd-port-rust.md).
 
 ## Changelog

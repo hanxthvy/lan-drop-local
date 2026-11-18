@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LAN Drop",
+  "version": "0.1.0",
+  "identifier": "id.hanxthvy.landrop",
+  "build": {
+    "frontendDist": "../../public"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LAN DROP",
+        "url": "http://127.0.0.1:3000",
+        "width": 1100,
+        "height": 750,
+        "minWidth": 700,
+        "minHeight": 500,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "nsis",
+      "dmg",
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Kirim file antar perangkat di Wi-Fi yang sama",
+    "longDescription": "LAN DROP memindahkan file dan teks antar perangkat di jaringan lokal yang sama. Tanpa akun, tanpa internet, tanpa server luar. Aplikasi desktop ini memuat UI yang sama dengan versi browser; servernya berjalan di proses yang sama (Rust).",
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

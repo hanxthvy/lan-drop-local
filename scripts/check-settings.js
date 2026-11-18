@@ -128,14 +128,18 @@ const HISTORY = `require(${JSON.stringify(path.join(ROOT, 'server', 'history.js'
 
   // 6. Penjaga regresi: flush itu harus benar-benar dipanggil di jalur keluar.
   const indexSrc = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf-8');
-  const mainSrc = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf-8');
+  const desktopSrc = ['main.rs', 'lib.rs']
+    .map((name) => fs.readFileSync(path.join(ROOT, 'rust', 'app', 'src', name), 'utf-8'))
+    .join('\n');
   check(
     'shutdown() memanggil history.flushNow()',
     /history\.flushNow\(\)/.test(indexSrc)
   );
+  // Jalur keluar aplikasi desktop sekarang di Rust: server harus ditutup rapi
+  // supaya riwayat yang masih di buffer ikut tertulis.
   check(
-    "Electron 'before-quit' memanggil history.flushNow()",
-    /before-quit[\s\S]{0,200}flushNow\(\)/.test(mainSrc)
+    'aplikasi desktop menutup server saat keluar',
+    /RunEvent::Exit[\s\S]{0,400}stop\(\)/.test(desktopSrc)
   );
   check(
     'setting auto-approve ditulis segera, bukan lewat timer',
