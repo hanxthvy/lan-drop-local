@@ -22,7 +22,9 @@ jobs:
             rust-target: x86_64-pc-windows-msvc
           # Universal (Intel + Apple Silicon). Runner arm64 tidak tersedia di
           # semua paket, jadi satu job x86_64 yang membangun dua arsitektur.
-          - os: macos-13
+          # macos-13 sudah dipensiunkan (job menggantung di antrean); label intel
+          # terbaru membangun dua arsitektur sekaligus untuk dmg universal.
+          - os: macos-15-intel
             name: macos-universal
             rust-target: universal-apple-darwin
 
