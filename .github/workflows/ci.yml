@@ -10,9 +10,11 @@ on:
 jobs:
   # Yang diuji di sini adalah oracle perilaku (server/ Node) dan pemeriksa
   # regresi. Runtime aplikasi sudah tidak menyentuh Node sama sekali.
+  # Pemeriksaan yang butuh binary Rust dilewati di sini (SKIP_BINARY=1) karena
+  # build LTO butuh waktu lebih lama dari jatah job; job `rust` yang menjalankannya.
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -23,22 +25,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - uses: dtolnay/rust-toolchain@1.99.0
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Dependensi desktop (webkit2gtk, appindicator)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libsoup-3.0-dev pkg-config build-essential
-      # check:desktop menjalankan binary hasil build; tanpa langkah ini
-      # pemeriksaan itu akan gagal dan CI terlihat hijau tanpa bukti.
-      - run: cargo build --release --manifest-path rust/Cargo.toml
-      # --omit=dev tidak dipakai: sebagian pemeriksaan butuh devDependency.
+      # --omit=dev tidak dipakai: express/multer di devDependencies adalah
+      # oracle yang dibandingkan check:parity.
       - run: npm ci
       - run: npm test
+        env:
+          SKIP_BINARY: '1'
 
   # Inti Rust + aplikasi desktop. Keduanya harus dibangun penuh: jendela Tauri
   # memakai webkit2gtk, dan dependensi sistemnya tidak ada di runner default.
@@ -61,9 +53,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libsoup-3.0-dev pkg-config build-essential
-      - run: cargo fmt --manifest-path rust/Cargo.toml --check
+      # Manifest di akar workspace tidak punya target sendiri; `--all` wajib.
+      - run: cargo fmt --manifest-path rust/Cargo.toml --all --check
       # Peringatan lint adalah bug yang belum kejadian.
       - run: cargo clippy --release --all-targets --manifest-path rust/Cargo.toml -- -D warnings
       - run: cargo test --release --manifest-path rust/Cargo.toml
       # Build kedua crate: CLI/inti dan aplikasi desktop.
       - run: cargo build --release --manifest-path rust/Cargo.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # Satu-satunya pemeriksaan yang menjalankan binary hasil build.
+      - run: npm run check:desktop

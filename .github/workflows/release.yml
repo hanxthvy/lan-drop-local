@@ -1,7 +1,7 @@
 name: Release
 
-# Satu tag → bundel untuk semua platform yang didukung.
-# Build dilakukan di runner aslinya, bukan cross-compile: .dmg/NSIS butuh
+# Satu tag (atau tombol Run workflow) -> bundel untuk semua platform.
+# Build dijalankan di runner aslinya, bukan cross-compile: NSIS dan .dmg butuh
 # toolchain host, dan hasil lintas-arsitektur tidak boleh diklaim teruji.
 on:
   push:
@@ -20,12 +20,11 @@ jobs:
           - os: windows-latest
             name: windows-x86_64
             rust-target: x86_64-pc-windows-msvc
-          - os: macos-14
-            name: macos-aarch64
-            rust-target: aarch64-apple-darwin
+          # Universal (Intel + Apple Silicon). Runner arm64 tidak tersedia di
+          # semua paket, jadi satu job x86_64 yang membangun dua arsitektur.
           - os: macos-13
-            name: macos-x86_64
-            rust-target: x86_64-apple-darwin
+            name: macos-universal
+            rust-target: universal-apple-darwin
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -54,10 +53,13 @@ jobs:
             librsvg2-dev libsoup-3.0-dev pkg-config build-essential \
             rpm
 
+      - name: Dependensi macOS (dua arsitektur)
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - run: npm ci
 
-      # deb + rpm (Linux), NSIS .exe (Windows), .app/.dmg (macOS)
-      # ditentukan isi `bundle.targets`; CLI memilih yang relevan per host.
+      # deb + rpm (Linux), NSIS .exe (Windows), universal .app/.dmg (macOS).
       - name: Bundel
         run: npx tauri build --target ${{ matrix.rust-target }}
         working-directory: rust/app
@@ -67,11 +69,15 @@ jobs:
           name: lan-drop-${{ matrix.name }}
           path: |
             rust/target/${{ matrix.rust-target }}/release/bundle/**
+            rust/target/release/bundle/**
           if-no-files-found: error
 
   android:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    # Di level job supaya bisa dipakai `if:` pada langkah tanda tangan.
+    env:
+      ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,11 +86,29 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: NDK 26.1
+      # android-actions/setup-android bergantung pada image runner; cmdline-tools
+      # resmi lebih panjang tapi tidak bergeser diam-diam.
+      - name: Android SDK + NDK
         run: |
-          sdkmanager --install "ndk;26.1.10909125" "platforms;android-36" "build-tools;36.0.0"
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+          curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/clt.zip -d "$SDK/cmdline-tools"
+          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125" > /dev/null
+          {
+            echo "ANDROID_HOME=$SDK"
+            echo "ANDROID_SDK_ROOT=$SDK"
+            echo "NDK_HOME=$SDK/ndk/26.1.10909125"
+            echo "NDK_PATH=$SDK/ndk/26.1.10909125"
+          } >> "$GITHUB_ENV"
+          {
+            echo "$SDK/cmdline-tools/latest/bin"
+            echo "$SDK/platform-tools"
+            echo "$SDK/build-tools/36.0.0"
+          } >> "$GITHUB_PATH"
 
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
@@ -103,11 +127,21 @@ jobs:
 
       # Keempat ABI sekaligus supaya satu APK jalan di HP baru dan lama.
       - name: APK
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
-          NDK_PATH: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
         run: npx tauri android build --apk
-        working-directory: rust/app
+
+      - name: Tanda tangan (kalau kunci tersedia)
+        if: env.ANDROID_KEY_BASE64 != ''
+        env:
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          set -euo pipefail
+          APK_DIR=rust/app/gen/android/app/build/outputs/apk/universal/release
+          UNSIGNED="$APK_DIR/app-universal-release-unsigned.apk"
+          echo "$ANDROID_KEY_BASE64" | base64 -d > /tmp/release.keystore
+          zipalign -f 4 "$UNSIGNED" /tmp/aligned.apk
+          apksigner sign --ks /tmp/release.keystore --ks-pass "pass:$ANDROID_KEY_PASS" \
+            --out "$APK_DIR/lan-drop.apk" /tmp/aligned.apk
+          apksigner verify "$APK_DIR/lan-drop.apk"
 
       - uses: actions/upload-artifact@v4
         with:
