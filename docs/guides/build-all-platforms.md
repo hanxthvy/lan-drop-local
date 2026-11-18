@@ -1,15 +1,24 @@
 # Membangun LAN DROP untuk semua platform
 
-Satu basis kode Rust, satu UI (`public/`), lima keluaran: `.deb`, `.rpm`,
-AppImage, `.exe` (NSIS), `.dmg`/`.app`, dan `.apk`. Tidak ada Node di jalur
-aplikasi; npm hanya dipakai untuk pemeriksa regresi dan CLI Tauri.
+Satu basis kode Rust, satu UI (`public/`), empat platform: `.deb`/`.rpm`,
+`.exe` (NSIS), `.dmg`/`.app` universal (Intel + Apple Silicon), dan `.apk`.
+Tidak ada Node di jalur aplikasi; npm hanya dipakai untuk pemeriksa regresi
+dan CLI Tauri.
+
+Satu tag `v*` membangun semuanya di runner aslinya dan melampirkan hasilnya ke
+rilis GitHub (`.github/workflows/release.yml`). Rilis 0.1.0 sudah terbukti:
+<https://github.com/hanxthvy/lan-drop-local/releases/tag/v0.1.0>
 
 | Platform | Keluaran | Dibangun di | Butuh |
 |---|---|---|---|
-| Linux | `<ver>_amd64.deb`, `.rpm` | Linux | `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libsoup-3.0-dev`, `rpm` |
+| Linux | `<ver>_amd64.deb`, `.x86_64.rpm` | Linux | `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libsoup-3.0-dev`, `rpm` |
 | Windows | `LAN Drop_<ver>_x64-setup.exe` (NSIS) | Windows | WebView2 (sudah ada di Windows 10/11), toolchain MSVC |
-| macOS | `LAN Drop.app`, `LAN Drop_<ver>_<arch>.dmg` | macOS | Xcode command line tools |
-| Android | `lan-drop-<ver>.apk` | Linux/macOS | JDK 17, Android SDK 34+, NDK 26.1, `platforms;android-36` |
+| macOS | `LAN Drop.app`, `LAN Drop_<ver>_universal.dmg` | macOS (intel) | Xcode command line tools, target `x86_64` + `aarch64-apple-darwin` |
+| Android | `lan-drop.apk` (universal, 4 ABI, ditandatangani) | Linux | JDK 17, Android SDK (`platforms;android-36`), NDK 26.1 |
+
+Artefak 0.1.0 yang sudah diperiksa isinya: `.deb` 3.7 MB, `.rpm` 3.7 MB,
+`.exe` 2.8 MB (PE32), `.dmg` 7.1 MB (Mach-O fat: x86_64 + arm64), `.apk`
+29 MB (`id.hanxthvy.landrop`, minSdk 24, sertifikat `CN=LAN Drop`).
 
 CLI Tauri berasal dari cargo (bukan npm), supaya jalur build distribusi bersih:
 

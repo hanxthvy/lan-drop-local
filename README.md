@@ -92,17 +92,21 @@ Packaging uses the Tauri CLI from cargo:
 
 ```bash
 cargo install tauri-cli --version '^2'
-npm run bundle:linux     # .deb, .rpm, AppImage
+npm run bundle:linux     # .deb, .rpm
 npm run bundle           # whatever the host builds (.exe on Windows, .dmg on macOS)
 npm run android:apk      # .apk (needs JDK 17 + Android SDK/NDK, see the guide)
 ```
 
 | Platform | Artifact | Status |
 |---|---|---|
-| Linux | `.deb`, `.rpm`, AppImage | built here |
-| Windows | NSIS `.exe` | workflow ready, not built on this machine |
-| macOS | `.app`, `.dmg` | workflow ready, not built on this machine |
-| Android | `.apk` (arm64/armv7/x86_64) | built and signed here, not yet run on a phone |
+| Linux | `.deb`, `.rpm` | built and shipped in 0.1.0 |
+| Windows | NSIS `.exe` | built and shipped in 0.1.0 |
+| macOS | `.app`, universal `.dmg` (Intel + Apple Silicon) | built and shipped in 0.1.0 |
+| Android | `.apk` (arm64/armv7/x86_64/x86), signed | built and shipped in 0.1.0; not yet run on a phone |
+
+Pushing a `v*` tag builds every platform on its own runner and attaches the
+result to the GitHub release:
+<https://github.com/hanxthvy/lan-drop-local/releases/tag/v0.1.0>
 
 Step-by-step per platform: [docs/guides/build-all-platforms.md](docs/guides/build-all-platforms.md).
 
