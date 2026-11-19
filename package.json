@@ -1,6 +1,6 @@
 {
   "name": "lan-drop-local",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "LAN DROP — aplikasi desktop Rust (Tauri) untuk kirim file antar perangkat di Wi-Fi yang sama",
   "bin": {
     "lan-drop": "tui.js"

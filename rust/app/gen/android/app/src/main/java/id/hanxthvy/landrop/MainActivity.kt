@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
@@ -26,6 +28,21 @@ class MainActivity : TauriActivity() {
     android.util.Log.i("LanDrop", "folder simpan=$recorded")
 
     super.onCreate(savedInstanceState)
+
+    // Android 15 memaksa edge-to-edge untuk targetSdk 35+, jadi UI tetap
+    // menggambar di bawah status bar kalau tidak diberi inset. Padding pada
+    // root view menggeser seluruh WebView ke bawah status bar dan di atas
+    // navigation bar — UI di public/ tidak perlu diubah.
+    val root = findViewById<android.view.View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+      val bars =
+        insets.getInsets(
+          WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+      view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      insets
+    }
+    ViewCompat.requestApplyInsets(root)
 
     // Discovery memakai UDP broadcast ke port 41234. Tanpa lock ini Android
     // membuang paket broadcast begitu layar mati atau Wi-Fi masuk mode hemat

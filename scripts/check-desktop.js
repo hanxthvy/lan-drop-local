@@ -179,6 +179,10 @@ check('proyek Android ada dan memakai paket yang sama', () => {
   // Android/data sendiri sejak Android 10.
   assert(/getExternalFilesDir/.test(activity), 'MainActivity tidak memakai getExternalFilesDir');
   assert(/landrop-save-dir/.test(activity), 'path folder simpan tidak dicatat untuk Rust');
+  // Android 15 memaksa edge-to-edge; tanpa inset, judul aplikasi tertimpa
+  // status bar. Padding root view yang menggeser UI ke bawah.
+  assert(/setOnApplyWindowInsetsListener/.test(activity) && /Type\.systemBars\(\)/.test(activity),
+    'MainActivity tidak menerapkan window insets, UI akan tertimpa status bar');
 });
 
 check('workflow rilis membangun semua platform', () => {

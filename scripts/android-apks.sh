@@ -39,6 +39,9 @@ if [[ ! -f "$apk" ]]; then
 fi
 [[ -f "$apk" ]] || { echo "APK universal tidak ditemukan"; exit 1; }
 
+# Sisa versi lama tidak boleh ikut terunggah ke rilis.
+rm -f "$out"/lan-drop-*.apk
+
 echo "== pecah dan tandatangani"
 python3 scripts/android-apk-split.py --apk "$apk" --version "$version" --out "$out"
 
