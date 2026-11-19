@@ -167,6 +167,59 @@ mod desktop {
     }
 }
 
+#[cfg(mobile)]
+/// Android/iOS tidak punya `~` atau `/tmp` (di emulator `/tmp` bahkan tidak
+/// ada). Dua env ini menunjuk folder yang benar-benar bisa ditulis aplikasi,
+/// sebelum inti memilih lokasi simpan sendiri.
+fn prepare_mobile_dirs(app: &AppHandle) {
+    use std::path::PathBuf;
+
+    let data = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(err) => {
+            eprintln!("[Dirs] app_data_dir tidak tersedia: {err}");
+            return;
+        }
+    };
+    if let Err(err) = std::fs::create_dir_all(&data) {
+        eprintln!("[Dirs] folder data tidak bisa dibuat: {err}");
+        return;
+    }
+    std::env::set_var("LANDROP_DATA_DIR", &data);
+
+    // Path asli dari Android (getExternalFilesDir) ditulis MainActivity ke
+    // files/landrop-save-dir. Path karangan sendiri tidak bisa dipakai: sejak
+    // Android 10 aplikasi tidak boleh membuat Android/data/<paket> sendiri.
+    let marker = data.join("files").join("landrop-save-dir");
+    let from_android = std::fs::read_to_string(&marker)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    let save = match from_android {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            let external = std::env::var("EXTERNAL_STORAGE")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| "/storage/emulated/0".to_string());
+            let package = app.config().identifier.clone();
+            let external_save = PathBuf::from(&external)
+                .join("Android/data")
+                .join(&package)
+                .join("files/Download");
+            if std::fs::create_dir_all(&external_save).is_ok() {
+                external_save
+            } else {
+                data.join("Download")
+            }
+        }
+    };
+    let _ = std::fs::create_dir_all(&save);
+    std::env::set_var("LANDROP_SAVE_DIR", &save);
+    eprintln!("[Dirs] data={} simpan={}", data.display(), save.display());
+}
+
 /// Titik masuk aplikasi. Di Android fungsi ini yang dipanggil
 /// `tauri::mobile_entry_point`; di desktop dipanggil `main.rs`.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -199,6 +252,9 @@ pub fn run() {
     let app = builder
         .setup(|app| {
             let handle = app.handle().clone();
+            // Android/iOS: tentukan folder data & simpan sebelum inti memilih.
+            #[cfg(mobile)]
+            prepare_mobile_dirs(&handle);
             let port_request = parse_port();
             // Server dinyalakan di runtime async milik Tauri; `block_on` di
             // sini aman karena setup berjalan sebelum event loop.

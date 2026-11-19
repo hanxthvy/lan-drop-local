@@ -163,6 +163,22 @@ check('proyek Android ada dan memakai paket yang sama', () => {
   // Aplikasi ini memang bicara HTTP polos ke 127.0.0.1 dan ke perangkat LAN.
   assert(/manifestPlaceholders\["usesCleartextTraffic"\] = "true"/.test(text),
     'release build tidak mengizinkan cleartext, jendela tidak bisa memuat server lokal');
+
+  // Izin yang dibutuhkan jalur Android: jaringan, Wi-Fi, dan broadcast UDP.
+  const manifest = fs.readFileSync(
+    path.join(APPDIR, 'gen', 'android', 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf-8');
+  for (const perm of ['INTERNET', 'ACCESS_WIFI_STATE', 'CHANGE_WIFI_MULTICAST_STATE']) {
+    assert(manifest.includes(`android.permission.${perm}`), `manifest tidak meminta ${perm}`);
+  }
+
+  // Tanpa MulticastLock, broadcast discovery dibuang saat layar mati.
+  const activity = fs.readFileSync(
+    path.join(APPDIR, 'gen', 'android', 'app', 'src', 'main', 'java', 'id', 'hanxthvy', 'landrop', 'MainActivity.kt'), 'utf-8');
+  assert(/createMulticastLock/.test(activity), 'MainActivity tidak memegang multicast lock');
+  // Path simpan harus datang dari Context: aplikasi tidak boleh membuat
+  // Android/data sendiri sejak Android 10.
+  assert(/getExternalFilesDir/.test(activity), 'MainActivity tidak memakai getExternalFilesDir');
+  assert(/landrop-save-dir/.test(activity), 'path folder simpan tidak dicatat untuk Rust');
 });
 
 check('workflow rilis membangun semua platform', () => {
@@ -200,6 +216,19 @@ check('APK dipecah jadi 32-bit, 64-bit, dan universal', () => {
 
   const release = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf-8');
   assert(/dist\/android\/\*\.apk/.test(release), 'workflow rilis tidak mengunggah hasil pemecahan');
+});
+
+// Android tidak punya folder repo: UI harus ikut dikompilasi ke binary,
+// kalau tidak jendela memuat 404 dan tampak kosong.
+check('UI tertanam untuk build mobile', () => {
+  const assets = path.join(ROOT, 'rust', 'core', 'src', 'assets.rs');
+  assert(fs.existsSync(assets), 'rust/core/src/assets.rs tidak ada');
+  const text = fs.readFileSync(assets, 'utf-8');
+  assert(/#\[folder = "\.\.\/\.\.\/public\/"\]/.test(text),
+    'aset tertanam tidak menunjuk folder public/');
+  const httpapi = fs.readFileSync(path.join(ROOT, 'rust', 'core', 'src', 'httpapi.rs'), 'utf-8');
+  assert(/crate::assets::get/.test(httpapi),
+    'penyaji berkas tidak memakai aset tertanam saat folder public tidak ada');
 });
 
 // --- 3. binary desktop benar-benar melayani --------------------------------

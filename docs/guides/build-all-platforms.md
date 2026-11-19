@@ -96,6 +96,36 @@ direktori `lib/<abi>/`-nya, kompresi tiap entri dipertahankan (`resources.arsc`
 dan `.so` tetap STORED, syarat targetSdk ≥ 30), lalu di-zipalign dan
 ditandatangani ulang.
 
+### Izin dan folder di Android
+
+| Izin | Untuk apa |
+|---|---|
+| `INTERNET` | server lokal dan transfer TCP |
+| `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | memilih alamat LAN yang benar |
+| `CHANGE_WIFI_MULTICAST_STATE` | memegang `MulticastLock`; tanpa ini broadcast discovery dibuang saat layar mati |
+| `WRITE_EXTERNAL_STORAGE` (`maxSdkVersion=28`) | hanya untuk Android 9 ke bawah |
+
+Tidak ada izin "semua file". Folder simpan diambil dari
+`getExternalFilesDir("Download")` milik aplikasi
+(`/storage/emulated/0/Android/data/id.hanxthvy.landrop/files/Download`): bisa
+ditulis tanpa dialog izin dan masih terlihat lewat USB/pengelola berkas.
+Path-nya dicatat `MainActivity` ke `files/landrop-save-dir` sebelum Rust
+menyala, karena sejak Android 10 aplikasi tidak boleh membuat folder
+`Android/data/<paket>` sendiri — percobaan pertama di emulator gagal dengan
+`Read-only file system` justru karena itu.
+
+Folder data (riwayat, pengaturan) tetap di `/data/user/0/<paket>`.
+
+### Yang sudah diuji di emulator (Android 14, x86_64)
+
+- APK 64-bit terpasang dan UI tampil lengkap (tab Devices/Activity, tombol
+  Connect/Dashboard, empty state)
+- `/status` di dalam perangkat: `runtime: rust`, `platform: android`
+- kirim 5 MB dari binary desktop ke aplikasi lewat TCP 3001: berkas mendarat
+  di folder simpan dengan SHA-1 identik
+- APK 32-bit tidak bisa dipasang di image x86_64 (tidak ada ABI 32-bit),
+  jadi isinya diperiksa lewat `aapt2 dump badging` saja
+
 Kunci dicari berurutan: `ANDROID_KEYSTORE` + `ANDROID_KEY_PASS` di env,
 `~/.config/lan-drop/keystore.env`, atau tanpa tanda tangan. Di CI kuncinya
 datang dari secret `ANDROID_KEY_BASE64` dan `ANDROID_KEY_PASS`.

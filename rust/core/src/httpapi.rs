@@ -262,33 +262,44 @@ async fn serve_file(
     rel: &str,
     extra: &[(&'static str, &'static str)],
 ) -> Response {
-    let Some(path) = resolve_public(&state.public_dir, rel) else {
-        return (StatusCode::NOT_FOUND, "Not found").into_response();
-    };
-    let path = if path.is_dir() {
-        path.join("index.html")
-    } else {
-        path
-    };
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => {
-            let mut resp = Response::new(Body::from(bytes));
-            resp.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static(mime_for(&path)),
-            );
-            for (name, value) in extra {
-                if let (Ok(n), Ok(v)) = (
-                    header::HeaderName::from_bytes(name.as_bytes()),
-                    HeaderValue::from_str(value),
-                ) {
-                    resp.headers_mut().insert(n, v);
-                }
+    // Di Android tidak ada folder `public` sama sekali, jadi aset tertanam yang
+    // menjawab. Di desktop disk tetap didahulukan supaya UI bisa diubah langsung.
+    let rel = rel.trim_start_matches('/');
+    let rel = if rel.is_empty() { "index.html" } else { rel };
+
+    let (bytes, content_type) = match resolve_public(&state.public_dir, rel) {
+        Some(path) => {
+            let path = if path.is_dir() {
+                path.join("index.html")
+            } else {
+                path
+            };
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => (bytes, mime_for(&path)),
+                Err(_) => match crate::assets::get(rel) {
+                    Some(bytes) => (bytes, mime_for(Path::new(rel))),
+                    None => return (StatusCode::NOT_FOUND, "Not found").into_response(),
+                },
             }
-            resp
         }
-        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+        None => match crate::assets::get(rel) {
+            Some(bytes) => (bytes, mime_for(Path::new(rel))),
+            None => return (StatusCode::NOT_FOUND, "Not found").into_response(),
+        },
+    };
+
+    let mut resp = Response::new(Body::from(bytes));
+    resp.headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    for (name, value) in extra {
+        if let (Ok(n), Ok(v)) = (
+            header::HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
+            resp.headers_mut().insert(n, v);
+        }
     }
+    resp
 }
 
 pub async fn service_worker(State(state): State<Arc<AppState>>) -> Response {

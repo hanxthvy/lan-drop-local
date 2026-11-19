@@ -18,6 +18,7 @@
 //! kedua yang harus dirawat terpisah.
 
 pub mod access;
+pub mod assets;
 pub mod discovery;
 pub mod ffmpeg;
 pub mod history;
