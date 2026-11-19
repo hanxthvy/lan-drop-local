@@ -1,6 +1,6 @@
 [package]
 name = "lan-drop-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Inti LAN DROP dalam Rust — port bertahap dari server Node (lihat docs/adr/0013)"
 license = "MIT"
